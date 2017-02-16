@@ -1,4 +1,5 @@
 [Grafana](http://grafana.org) [![Circle CI](https://circleci.com/gh/grafana/grafana.svg?style=svg)](https://circleci.com/gh/grafana/grafana)
+[Website](http://grafana.org) |
 [Twitter](https://twitter.com/grafana) |
 [Community & Forum](https://community.grafana.com)
 
