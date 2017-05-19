@@ -1,26 +1,25 @@
 package sqlstore
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/go-xorm/xorm"
 	"github.com/grafana/grafana/pkg/bus"
+	"github.com/grafana/grafana/pkg/components/formatter"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	m "github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/sqlstore/basic"
-	"github.com/grafana/grafana/pkg/services/sqlstore/df"
-	jsondiff "github.com/yudai/gojsondiff"
-	"github.com/yudai/gojsondiff/formatter"
+
+	diff "github.com/yudai/gojsondiff"
+	deltaFormatter "github.com/yudai/gojsondiff/formatter"
 )
+
+// TODO(ben) should this go in models?
+var ErrUnsupportedDiffType = errors.New("sqlstore: unsupported diff type")
 
 func init() {
 	bus.AddHandler("sql", CompareDashboardVersionsCommand)
-	bus.AddHandler("sql", CompareDashboardVersionsHTMLCommand)
-	bus.AddHandler("sql", CompareDashboardVersionsBasicCommand)
-	bus.AddHandler("sql", CompareDashboardVersionsTokenCommand)
 	bus.AddHandler("sql", GetDashboardVersion)
 	bus.AddHandler("sql", GetDashboardVersions)
 	bus.AddHandler("sql", RestoreDashboardVersion)
@@ -40,85 +39,36 @@ func CompareDashboardVersionsCommand(cmd *m.CompareDashboardVersionsCommand) err
 		return err
 	}
 
-	delta, err := diff(original, newDashboard)
+	left, jsonDiff, err := getDiff(original, newDashboard)
 	if err != nil {
 		return err
 	}
+	switch cmd.DiffType {
+	case m.DiffDelta:
+		deltaOutput, err := deltaFormatter.NewDeltaFormatter().Format(jsonDiff)
+		if err != nil {
+			return err
+		}
+		cmd.Delta = []byte(deltaOutput)
 
-	cmd.Delta = delta
-	return nil
-}
+	case m.DiffJSON:
+		jsonOutput, err := formatter.NewJSONFormatter(left).Format(jsonDiff)
+		if err != nil {
+			return err
+		}
+		cmd.Delta = []byte(jsonOutput)
 
-// CompareDashboardVersionsHTMLCommand computes the JSON diff of two versions,
-// assigning the delta of the diff to the `Delta` field.
-func CompareDashboardVersionsHTMLCommand(cmd *m.CompareDashboardVersionsHTMLCommand) error {
-	// Find original version
-	original, err := getDashboardVersion(cmd.DashboardId, cmd.Original)
-	if err != nil {
-		return err
+	case m.DiffBasic:
+		basicOutput, err := formatter.NewBasicFormatter(left).Format(jsonDiff)
+		if err != nil {
+			return err
+		}
+		cmd.Delta = basicOutput
+
+	default:
+		return ErrUnsupportedDiffType
 	}
 
-	newDashboard, err := getDashboardVersion(cmd.DashboardId, cmd.New)
-	if err != nil {
-		return err
-	}
-
-	delta, err := diffJSON(original, newDashboard)
-	if err != nil {
-		return err
-	}
-
-	cmd.Delta = delta
-	return nil
-}
-
-// CompareDashboardVersionsBasicCommand computes the JSON diff of two versions,
-// assigning the delta of the diff to the `Delta` field.
-func CompareDashboardVersionsBasicCommand(cmd *m.CompareDashboardVersionsBasicCommand) error {
-	// Find original version
-	original, err := getDashboardVersion(cmd.DashboardId, cmd.Original)
-	if err != nil {
-		return err
-	}
-
-	newDashboard, err := getDashboardVersion(cmd.DashboardId, cmd.New)
-	if err != nil {
-		return err
-	}
-
-	delta, err := diffBasic(original, newDashboard)
-	if err != nil {
-		return err
-	}
-
-	cmd.Delta = delta
-	return nil
-}
-
-func CompareDashboardVersionsTokenCommand(cmd *m.CompareDashboardVersionsTokenCommand) error {
-	// Find original version
-	original, err := getDashboardVersion(cmd.DashboardId, cmd.Original)
-	if err != nil {
-		return err
-	}
-
-	newDashboard, err := getDashboardVersion(cmd.DashboardId, cmd.New)
-	if err != nil {
-		return err
-	}
-
-	delta, err := diffTokens(original, newDashboard)
-	if err != nil {
-		return err
-	}
-
-	// marshal it into JSON
-	str, err := json.MarshalIndent(delta, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	cmd.Delta = string(str)
 	return nil
 }
 
@@ -243,134 +193,30 @@ func getDashboard(dashboardId int64) (*m.Dashboard, error) {
 	return &dashboard, nil
 }
 
-func delta(original, newDashboard *m.DashboardVersion) (jsondiff.Diff, error) {
-	originalJSON, err := simplejson.NewFromAny(original).Encode()
+// getDiff computes the diff of two dashboard versions.
+func getDiff(originalDash, newDash *m.DashboardVersion) (interface{}, diff.Diff, error) {
+	leftBytes, err := simplejson.NewFromAny(originalDash).Encode()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	newJSON, err := simplejson.NewFromAny(newDashboard).Encode()
+	rightBytes, err := simplejson.NewFromAny(newDash).Encode()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	differ := jsondiff.New()
-	diff, err := differ.Compare(originalJSON, newJSON)
+	jsonDiff, err := diff.New().Compare(leftBytes, rightBytes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if !diff.Modified() {
-		return nil, nil
+	if !jsonDiff.Modified() {
+		return nil, nil, nil
 	}
 
-	return diff, nil
-}
-
-// diff calculates the diff of two JSON objects. A the two objects are the
-// same, the error, as well as the diff, will be nil, indicating that the diff
-// algorithm ran successfully but no changes were detected.
-func diff(original, newDashboard *m.DashboardVersion) (map[string]interface{}, error) {
-	diff, err := delta(original, newDashboard)
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO(ben) move this to the df package
-	format := formatter.NewDeltaFormatter()
-	return format.FormatAsJson(diff)
-}
-
-// diffJSON computes the diff as human-readable string output, for use in HTML
-// templating systems.
-func diffJSON(original, newDashboard *m.DashboardVersion) (string, error) {
-	diff, err := delta(original, newDashboard)
-	if err != nil {
-		return "", err
-	}
-
-	result := make(map[string]interface{})
-	originalJSON, err := simplejson.NewFromAny(original).Encode()
-	if err != nil {
-		return "", err
-	}
-	err = json.Unmarshal(originalJSON, &result)
-	if err != nil {
-		return "", err
-	}
-
-	lineWalker := df.NewBasicWalker()
-	jsonFormatter := df.NewAsciiFormatter(result, lineWalker.Walk)
-
-	return jsonFormatter.Format(diff)
-}
-
-// diffBasic computes the diff as human-readable string output, for use in HTML
-// templating systems.
-func diffBasic(original, newDashboard *m.DashboardVersion) (string, error) {
-	diff, err := delta(original, newDashboard)
-	if err != nil {
-		return "", err
-	}
-
-	result := make(map[string]interface{})
-	originalJSON, err := simplejson.NewFromAny(original).Encode()
-	if err != nil {
-		return "", err
-	}
-	err = json.Unmarshal(originalJSON, &result)
-	if err != nil {
-		return "", err
-	}
-
-	// New Basic Diff stuff
-	//
-	// walkFn
-	lineWalker := df.NewBasicWalker()
-	jsonFormatter := df.NewAsciiFormatter(result, lineWalker.Walk)
-	_, err = jsonFormatter.Format(diff)
-	if err != nil {
-		return "", err
-	}
-
-	str, err := basic.Format(jsonFormatter.Lines)
-	if err != nil {
-		return "", err
-	}
-
-	buf := &bytes.Buffer{}
-	fmt.Fprintln(buf, `<div class="basic-diff">`)
-	fmt.Fprintln(buf, str)
-	fmt.Fprintln(buf, `</div>`)
-
-	return buf.String(), nil
-}
-
-// diffTokens computes the diff, returning JSONLine tokens.
-func diffTokens(original, newDashboard *m.DashboardVersion) ([]*df.JSONLine, error) {
-	diff, err := delta(original, newDashboard)
-	if err != nil {
-		return nil, err
-	}
-
-	result := make(map[string]interface{})
-	originalJSON, err := simplejson.NewFromAny(original).Encode()
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(originalJSON, &result)
-	if err != nil {
-		return nil, err
-	}
-
-	lineWalker := df.NewBasicWalker()
-	jsonFormatter := df.NewAsciiFormatter(result, lineWalker.Walk)
-	_, err = jsonFormatter.Format(diff)
-	if err != nil {
-		return nil, err
-	}
-
-	return jsonFormatter.Lines, nil
+	left := make(map[string]interface{})
+	err = json.Unmarshal(leftBytes, &left)
+	return left, jsonDiff, nil
 }
 
 type version struct {

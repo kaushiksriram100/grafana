@@ -350,42 +350,54 @@ func GetDashboardVersion(c *middleware.Context) {
 	c.JSON(200, dashVersionMeta)
 }
 
-// CompareDashboardVersionByID compares dashboards the way the GitHub API does.
-func CompareDashboardVersionByID(c *middleware.Context) {
+func dashCmd(c *middleware.Context) (m.CompareDashboardVersionsCommand, error) {
+	cmd := m.CompareDashboardVersionsCommand{}
+
 	dashboardIdStr := c.Params(":dashboardId")
 	dashboardId, err := strconv.Atoi(dashboardIdStr)
 	if err != nil {
-		c.JsonApiErr(400, err.Error(), err)
-		return
+		return cmd, err
 	}
 
-	versions := c.Params("versions")
-	versionStrings := strings.Split(versions, "...")
+	versionStrings := strings.Split(c.Params(":versions"), "...")
 	if len(versionStrings) != 2 {
-		c.JsonApiErr(400, "Bad format: URLs should be in the format /versions/0...1", nil)
-		return
+		return cmd, fmt.Errorf("bad format: urls should be in the format /versions/0...1")
 	}
 
-	original, err := strconv.Atoi(versionStrings[0])
+	originalDash, err := strconv.Atoi(versionStrings[0])
 	if err != nil {
-		c.JsonApiErr(400, "Bad format: first argument is not of type integer", nil)
-		return
+		return cmd, fmt.Errorf("bad format: first argument is not of type int")
 	}
 
-	newDashboard, err := strconv.Atoi(versionStrings[1])
+	newDash, err := strconv.Atoi(versionStrings[1])
 	if err != nil {
-		c.JsonApiErr(400, "Bad format: second argument is not of type integer", nil)
-		return
+		return cmd, fmt.Errorf("bad format: second argument is not of type int")
 	}
 
-	// Dispatch the message
-	cmd := m.CompareDashboardVersionsCommand{
-		DashboardId: int64(dashboardId),
-		Original:    original,
-		New:         newDashboard,
+	cmd.DashboardId = int64(dashboardId)
+	cmd.Original = originalDash
+	cmd.New = newDash
+	return cmd, nil
+}
+
+// CompareDashboardVersions compares dashboards the way the GitHub API does.
+func CompareDashboardVersions(c *middleware.Context) {
+	cmd, err := dashCmd(c)
+	if err != nil {
+		c.JsonApiErr(500, err.Error(), err)
 	}
+	cmd.DiffType = m.DiffDelta
+
 	if err := bus.Dispatch(&cmd); err != nil {
 		c.JsonApiErr(500, "cannot-compute-diff", err)
+		return
+	}
+	// here the output is already JSON, so we need to unmarshal it into a
+	// map before marshaling the entire response
+	deltaMap := make(map[string]interface{})
+	err = json.Unmarshal(cmd.Delta, &deltaMap)
+	if err != nil {
+		c.JsonApiErr(500, err.Error(), err)
 		return
 	}
 
@@ -394,45 +406,19 @@ func CompareDashboardVersionByID(c *middleware.Context) {
 			"original": cmd.Original,
 			"new":      cmd.New,
 		},
-		"delta": cmd.Delta,
+		"delta": deltaMap,
 	}))
 }
 
-// CompareDashboardVersionByID compares dashboards the way the GitHub API does,
-// returning a human-readable HTML diff.
-func CompareDashboardVersionByIDHTML(c *middleware.Context) {
-	dashboardIdStr := c.Params(":dashboardId")
-	dashboardId, err := strconv.Atoi(dashboardIdStr)
+// CompareDashboardVersionsJSON compares dashboards the way the GitHub API does,
+// returning a human-readable JSON diff.
+func CompareDashboardVersionsJSON(c *middleware.Context) {
+	cmd, err := dashCmd(c)
 	if err != nil {
-		c.JsonApiErr(400, err.Error(), err)
-		return
+		c.JsonApiErr(500, err.Error(), err)
 	}
+	cmd.DiffType = m.DiffJSON
 
-	versions := c.Params("versions")
-	versionStrings := strings.Split(versions, "...")
-	if len(versionStrings) != 2 {
-		c.JsonApiErr(400, "Bad format: URLs should be in the format /versions/0...1", nil)
-		return
-	}
-
-	original, err := strconv.Atoi(versionStrings[0])
-	if err != nil {
-		c.JsonApiErr(400, "Bad format: first argument is not of type integer", nil)
-		return
-	}
-
-	newDashboard, err := strconv.Atoi(versionStrings[1])
-	if err != nil {
-		c.JsonApiErr(400, "Bad format: second argument is not of type integer", nil)
-		return
-	}
-
-	// Dispatch the message
-	cmd := m.CompareDashboardVersionsHTMLCommand{
-		DashboardId: int64(dashboardId),
-		Original:    original,
-		New:         newDashboard,
-	}
 	if err := bus.Dispatch(&cmd); err != nil {
 		c.JsonApiErr(500, err.Error(), err)
 		return
@@ -440,44 +426,18 @@ func CompareDashboardVersionByIDHTML(c *middleware.Context) {
 
 	c.Header().Set("Content-Type", "text/html")
 	c.WriteHeader(200)
-	c.Write([]byte(cmd.Delta))
+	c.Write(cmd.Delta)
 }
 
-// CompareDashboardVersionByIDBasic compares dashboards the way the GitHub API does,
-// returning a human-readable HTML diff.
-func CompareDashboardVersionByIDBasic(c *middleware.Context) {
-	dashboardIdStr := c.Params(":dashboardId")
-	dashboardId, err := strconv.Atoi(dashboardIdStr)
+// CompareDashboardVersionsBasic compares dashboards the way the GitHub API does,
+// returning a human-readable diff.
+func CompareDashboardVersionsBasic(c *middleware.Context) {
+	cmd, err := dashCmd(c)
 	if err != nil {
-		c.JsonApiErr(400, err.Error(), err)
-		return
+		c.JsonApiErr(500, err.Error(), err)
 	}
+	cmd.DiffType = m.DiffBasic
 
-	versions := c.Params("versions")
-	versionStrings := strings.Split(versions, "...")
-	if len(versionStrings) != 2 {
-		c.JsonApiErr(400, "Bad format: URLs should be in the format /versions/0...1", nil)
-		return
-	}
-
-	original, err := strconv.Atoi(versionStrings[0])
-	if err != nil {
-		c.JsonApiErr(400, "Bad format: first argument is not of type integer", nil)
-		return
-	}
-
-	newDashboard, err := strconv.Atoi(versionStrings[1])
-	if err != nil {
-		c.JsonApiErr(400, "Bad format: second argument is not of type integer", nil)
-		return
-	}
-
-	// Dispatch the message
-	cmd := m.CompareDashboardVersionsBasicCommand{
-		DashboardId: int64(dashboardId),
-		Original:    original,
-		New:         newDashboard,
-	}
 	if err := bus.Dispatch(&cmd); err != nil {
 		c.JsonApiErr(500, err.Error(), err)
 		return
@@ -485,80 +445,7 @@ func CompareDashboardVersionByIDBasic(c *middleware.Context) {
 
 	c.Header().Set("Content-Type", "text/html")
 	c.WriteHeader(200)
-	c.Write([]byte(cmd.Delta))
-}
-
-// CompareDashboardVersionByIDToken compares dashboards the way the GitHub API does,
-// returning a JSON array of JSONLine tokens.
-func CompareDashboardVersionByIDToken(c *middleware.Context) {
-	dashboardIdStr := c.Params(":dashboardId")
-	dashboardId, err := strconv.Atoi(dashboardIdStr)
-	if err != nil {
-		c.JsonApiErr(400, err.Error(), err)
-		return
-	}
-
-	versions := c.Params("versions")
-	versionStrings := strings.Split(versions, "...")
-	if len(versionStrings) != 2 {
-		c.JsonApiErr(400, "Bad format: URLs should be in the format /versions/0...1", nil)
-		return
-	}
-
-	original, err := strconv.Atoi(versionStrings[0])
-	if err != nil {
-		c.JsonApiErr(400, "Bad format: first argument is not of type integer", nil)
-		return
-	}
-
-	newDashboard, err := strconv.Atoi(versionStrings[1])
-	if err != nil {
-		c.JsonApiErr(400, "Bad format: second argument is not of type integer", nil)
-		return
-	}
-
-	// Dispatch the message
-	cmd := m.CompareDashboardVersionsTokenCommand{
-		DashboardId: int64(dashboardId),
-		Original:    original,
-		New:         newDashboard,
-	}
-	if err := bus.Dispatch(&cmd); err != nil {
-		c.JsonApiErr(500, err.Error(), err)
-		return
-	}
-
-	c.Header().Set("Content-Type", "application/json")
-	c.WriteHeader(200)
-	c.Write([]byte(cmd.Delta))
-}
-
-// CompareDashboardVersion compares two dashboard versions
-func CompareDashboardVersion(c *middleware.Context, cmd m.CompareDashboardVersionsCommand) Response {
-	dashboardIdStr := c.Params(":dashboardId")
-	dashboardId, err := strconv.Atoi(dashboardIdStr)
-	if err != nil {
-		return Json(404, util.DynMap{
-			"message": err.Error(),
-			"status":  "cannot-find-dashboard",
-		})
-	}
-	cmd.DashboardId = int64(dashboardId)
-
-	if err := bus.Dispatch(&cmd); err != nil {
-		return Json(500, util.DynMap{
-			"message": err.Error(),
-			"status":  "cannot-compute-diff",
-		})
-	}
-
-	return Json(200, simplejson.NewFromAny(util.DynMap{
-		"meta": util.DynMap{
-			"original": cmd.Original,
-			"new":      cmd.New,
-		},
-		"delta": cmd.Delta,
-	}))
+	c.Write(cmd.Delta)
 }
 
 // RestoreDashboardVersion restores a dashboard to the given version.

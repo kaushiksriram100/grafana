@@ -104,7 +104,7 @@ export class AuditLogCtrl {
 
     if (this.delta[this.diff]) {
       this.loading = false;
-      return this.$q.when(this.delta[this.diff]);;
+      return this.$q.when(this.delta[this.diff]);
     } else {
       return this.auditSrv.compareVersions(this.dashboard, compare, diff).then(response => {
         this.delta[this.diff] = response;

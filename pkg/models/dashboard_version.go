@@ -7,6 +7,14 @@ import (
 	"github.com/grafana/grafana/pkg/components/simplejson"
 )
 
+type DiffType int
+
+const (
+	DiffJSON DiffType = iota
+	DiffBasic
+	DiffDelta
+)
+
 var (
 	ErrDashboardVersionNotFound = errors.New("Dashboard version not found")
 	ErrNoVersionsForDashboardId = errors.New("No dashboard versions found for the given DashboardId")
@@ -86,41 +94,10 @@ type RestoreDashboardVersionCommand struct {
 
 // CompareDashboardVersionsCommand is used to compare two versions.
 type CompareDashboardVersionsCommand struct {
-	DashboardId int64 `json:"dashboardId"`
-	Original    int   `json:"original" binding:"Required"`
-	New         int   `json:"new" binding:"Required"`
+	DashboardId int64    `json:"dashboardId"`
+	Original    int      `json:"original" binding:"Required"`
+	New         int      `json:"new" binding:"Required"`
+	DiffType    DiffType `json:"-"`
 
-	Delta map[string]interface{} `json:"delta"`
-}
-
-// TODO(ben): this should all be one thing
-
-// CompareDashboardVersionsHTMLCommand is used to compare two versions,
-// returning human-readable HTML.
-type CompareDashboardVersionsHTMLCommand struct {
-	DashboardId int64 `json:"dashboardId"`
-	Original    int   `json:"original" binding:"Required"`
-	New         int   `json:"new" binding:"Required"`
-
-	Delta string `json:"delta"`
-}
-
-// CompareDashboardVersionsBasicCommand is used to compare two versions,
-// returning human-readable HTML.
-type CompareDashboardVersionsBasicCommand struct {
-	DashboardId int64 `json:"dashboardId"`
-	Original    int   `json:"original" binding:"Required"`
-	New         int   `json:"new" binding:"Required"`
-
-	Delta string `json:"delta"`
-}
-
-// CompareDashboardVersionsTokenCommand is used to compare two versions,
-// returning JSONLine tokens.
-type CompareDashboardVersionsTokenCommand struct {
-	DashboardId int64 `json:"dashboardId"`
-	Original    int   `json:"original" binding:"Required"`
-	New         int   `json:"new" binding:"Required"`
-
-	Delta string `json:"delta"`
+	Delta []byte `json:"delta"`
 }

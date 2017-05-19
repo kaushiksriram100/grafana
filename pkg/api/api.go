@@ -226,12 +226,10 @@ func (hs *HttpServer) registerRoutes() {
 
 			r.Get("/db/:dashboardId/versions", GetDashboardVersions)
 			r.Get("/db/:dashboardId/versions/:id", GetDashboardVersion)
+			r.Get("/db/:dashboardId/compare/:versions", CompareDashboardVersions)
+			r.Get("/db/:dashboardId/compare/:versions/html", CompareDashboardVersionsJSON)
+			r.Get("/db/:dashboardId/compare/:versions/basic", CompareDashboardVersionsBasic)
 			r.Post("/db/:dashboardId/restore", reqEditorRole, bind(m.RestoreDashboardVersionCommand{}), wrap(RestoreDashboardVersion))
-			r.Post("/db/:dashboardId/compare", reqEditorRole, bind(m.CompareDashboardVersionsCommand{}), wrap(CompareDashboardVersion))
-			r.Get("/db/:dashboardId/compare/:versions", CompareDashboardVersionByID)
-			r.Get("/db/:dashboardId/compare/:versions/html", CompareDashboardVersionByIDHTML)
-			r.Get("/db/:dashboardId/compare/:versions/basic", CompareDashboardVersionByIDBasic)
-			r.Get("/db/:dashboardId/compare/:versions/token", CompareDashboardVersionByIDToken)
 
 			r.Post("/db", reqEditorRole, bind(m.SaveDashboardCommand{}), wrap(PostDashboard))
 			r.Get("/file/:file", GetDashboardFromJsonFile)

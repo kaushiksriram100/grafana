@@ -1,10 +1,10 @@
-package basic
+package formatter
 
 import (
 	"bytes"
 	"html/template"
 
-	"github.com/grafana/grafana/pkg/services/sqlstore/df"
+	diff "github.com/yudai/gojsondiff"
 )
 
 // A BasicDiff holds the stateful values that are used when generating a basic
@@ -24,20 +24,20 @@ type BasicBlock struct {
 	Title     string
 	Old       interface{}
 	New       interface{}
-	Change    df.ChangeType
+	Change    ChangeType
 	Changes   []*BasicChange
 	Summaries []*BasicSummary
 	LineStart int
 	LineEnd   int
 }
 
-// A BasicChane represents the change from an old to new value. There are many
+// A BasicChange represents the change from an old to new value. There are many
 // BasicChanges in a BasicBlock.
 type BasicChange struct {
 	Key       string
 	Old       interface{}
 	New       interface{}
-	Change    df.ChangeType
+	Change    ChangeType
 	LineStart int
 	LineEnd   int
 }
@@ -49,36 +49,55 @@ type BasicChange struct {
 // element.
 type BasicSummary struct {
 	Key       string
-	Change    df.ChangeType
+	Change    ChangeType
 	Count     int
 	LineStart int
 	LineEnd   int
 }
 
-func Format(lines []*df.JSONLine) (string, error) {
-	b := &BasicDiff{}
-	blocks := b.Basic(lines)
+type BasicFormatter struct {
+	jsonDiff *JSONFormatter
+	tpl      *template.Template
+}
 
+func NewBasicFormatter(left interface{}) *BasicFormatter {
 	tpl := template.Must(template.New("block").Funcs(tplFuncMap).Parse(tplBlock))
 	tpl = template.Must(tpl.New("change").Funcs(tplFuncMap).Parse(tplChange))
 	tpl = template.Must(tpl.New("summary").Funcs(tplFuncMap).Parse(tplSummary))
 
-	buf := &bytes.Buffer{}
-	err := tpl.ExecuteTemplate(buf, "block", blocks)
-	if err != nil {
-		return "", err
+	return &BasicFormatter{
+		jsonDiff: NewJSONFormatter(left),
+		tpl:      tpl,
 	}
-	return buf.String(), nil
+}
+
+func (b *BasicFormatter) Format(d diff.Diff) ([]byte, error) {
+	// calling jsonDiff.Format(d) populates the JSON diff's "Lines" value,
+	// which we use to compute the basic dif
+	_, err := b.jsonDiff.Format(d)
+	if err != nil {
+		return nil, err
+	}
+
+	bd := &BasicDiff{}
+	blocks := bd.Basic(b.jsonDiff.Lines)
+	buf := &bytes.Buffer{}
+
+	err = b.tpl.ExecuteTemplate(buf, "block", blocks)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // Basic is V2 of the basic diff
-func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
+func (b *BasicDiff) Basic(lines []*JSONLine) []*BasicBlock {
 	// init an array you can append to for the basic "blocks"
 	blocks := make([]*BasicBlock, 0)
 
 	// iterate through each line
 	for _, line := range lines {
-		if b.LastIndent == 3 && line.Indent == 2 && line.Change == df.ChangeNil {
+		if b.LastIndent == 3 && line.Indent == 2 && line.Change == ChangeNil {
 			if b.Block != nil {
 				blocks = append(blocks, b.Block)
 			}
@@ -87,8 +106,8 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 
 		if line.Indent == 2 {
 			switch line.Change {
-			case df.ChangeNil:
-				if line.Change == df.ChangeNil {
+			case ChangeNil:
+				if line.Change == ChangeNil {
 					if line.Key != "" {
 						b.Block = &BasicBlock{
 							Title:  line.Key,
@@ -97,7 +116,7 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 					}
 				}
 
-			case df.ChangeAdded, df.ChangeDeleted:
+			case ChangeAdded, ChangeDeleted:
 				blocks = append(blocks, &BasicBlock{
 					Title:     line.Key,
 					Change:    line.Change,
@@ -105,7 +124,7 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 					LineStart: line.LineNum,
 				})
 
-			case df.ChangeOld:
+			case ChangeOld:
 				b.Block = &BasicBlock{
 					Title:     line.Key,
 					Old:       line.Val,
@@ -113,7 +132,7 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 					LineStart: line.LineNum,
 				}
 
-			case df.ChangeNew:
+			case ChangeNew:
 				b.Block.New = line.Val
 				b.Block.LineEnd = line.LineNum
 
@@ -129,7 +148,7 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 			// Ensure single line change
 			if line.Key != "" && line.Val != nil && !b.writing {
 				switch line.Change {
-				case df.ChangeAdded, df.ChangeDeleted:
+				case ChangeAdded, ChangeDeleted:
 					b.Block.Changes = append(b.Block.Changes, &BasicChange{
 						Key:       line.Key,
 						Change:    line.Change,
@@ -137,7 +156,7 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 						LineStart: line.LineNum,
 					})
 
-				case df.ChangeOld:
+				case ChangeOld:
 					b.Change = &BasicChange{
 						Key:       line.Key,
 						Change:    line.Change,
@@ -145,7 +164,7 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 						LineStart: line.LineNum,
 					}
 
-				case df.ChangeNew:
+				case ChangeNew:
 					b.Change.New = line.Val
 					b.Change.LineEnd = line.LineNum
 					b.Block.Changes = append(b.Block.Changes, b.Change)
@@ -155,13 +174,13 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 				}
 
 			} else {
-				if line.Change != df.ChangeUnchanged {
+				if line.Change != ChangeUnchanged {
 					if line.Key != "" {
 						b.narrow = line.Key
 						b.keysIdent = line.Indent
 					}
 
-					if line.Change != df.ChangeNil {
+					if line.Change != ChangeNil {
 						if !b.writing {
 							b.writing = true
 							key := b.Block.Title
@@ -201,16 +220,16 @@ func (b *BasicDiff) Basic(lines []*df.JSONLine) []*BasicBlock {
 
 // encStateMap is used in the template helper
 var (
-	encStateMap = map[df.ChangeType]string{
-		df.ChangeAdded:   "added",
-		df.ChangeDeleted: "deleted",
-		df.ChangeOld:     "changed",
-		df.ChangeNew:     "changed",
+	encStateMap = map[ChangeType]string{
+		ChangeAdded:   "added",
+		ChangeDeleted: "deleted",
+		ChangeOld:     "changed",
+		ChangeNew:     "changed",
 	}
 
 	// tplFuncMap is the function map for each template
 	tplFuncMap = template.FuncMap{
-		"getChange": func(c df.ChangeType) string {
+		"getChange": func(c ChangeType) string {
 			state, ok := encStateMap[c]
 			if !ok {
 				return "changed"

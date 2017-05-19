@@ -1,4 +1,4 @@
-package df
+package formatter
 
 import (
 	"bytes"
@@ -96,11 +96,11 @@ type JSONLine struct {
 	Val       interface{} `json:"value"`
 }
 
-func NewAsciiFormatter(left interface{}, walkFn WalkFunc) *AsciiFormatter {
+func NewJSONFormatter(left interface{}) *JSONFormatter {
 	tpl := template.Must(template.New("JSONDiffWrapper").Funcs(diffTplFuncs).Parse(tplJSONDiffWrapper))
 	tpl = template.Must(tpl.New("JSONDiffLine").Funcs(diffTplFuncs).Parse(tplJSONDiffLine))
 
-	return &AsciiFormatter{
+	return &JSONFormatter{
 		left:      left,
 		Lines:     []*JSONLine{},
 		tpl:       tpl,
@@ -108,11 +108,10 @@ func NewAsciiFormatter(left interface{}, walkFn WalkFunc) *AsciiFormatter {
 		size:      []int{},
 		lineCount: 0,
 		inArray:   []bool{},
-		walkFn:    walkFn,
 	}
 }
 
-type AsciiFormatter struct {
+type JSONFormatter struct {
 	left      interface{}
 	path      []string
 	size      []int
@@ -121,10 +120,8 @@ type AsciiFormatter struct {
 	leftLine  int
 	rightLine int
 	line      *AsciiLine
-	lineState LineState
 	Lines     []*JSONLine
 	tpl       *template.Template
-	walkFn    WalkFunc
 }
 
 type AsciiLine struct {
@@ -142,7 +139,7 @@ type AsciiLine struct {
 	buffer *bytes.Buffer
 }
 
-func (f *AsciiFormatter) Format(diff diff.Diff) (result string, err error) {
+func (f *JSONFormatter) Format(diff diff.Diff) (result string, err error) {
 	if v, ok := f.left.(map[string]interface{}); ok {
 		f.formatObject(v, diff)
 	} else if v, ok := f.left.([]interface{}); ok {
@@ -161,27 +158,23 @@ func (f *AsciiFormatter) Format(diff diff.Diff) (result string, err error) {
 	return b.String(), nil
 }
 
-func (f *AsciiFormatter) formatObject(left map[string]interface{}, df diff.Diff) {
+func (f *JSONFormatter) formatObject(left map[string]interface{}, df diff.Diff) {
 	f.addLineWith(ChangeNil, "{")
-	f.lineState = ObjectOpen
 	f.push("ROOT", len(left), false)
 	f.processObject(left, df.Deltas())
 	f.pop()
 	f.addLineWith(ChangeNil, "}")
-	f.lineState = ObjectClose
 }
 
-func (f *AsciiFormatter) formatArray(left []interface{}, df diff.Diff) {
+func (f *JSONFormatter) formatArray(left []interface{}, df diff.Diff) {
 	f.addLineWith(ChangeNil, "[")
-	f.lineState = ArrayOpen
 	f.push("ROOT", len(left), true)
 	f.processArray(left, df.Deltas())
 	f.pop()
 	f.addLineWith(ChangeNil, "]")
-	f.lineState = ArrayClose
 }
 
-func (f *AsciiFormatter) processArray(array []interface{}, deltas []diff.Delta) error {
+func (f *JSONFormatter) processArray(array []interface{}, deltas []diff.Delta) error {
 	patchedIndex := 0
 	for index, value := range array {
 		f.processItem(value, deltas, diff.Index(index))
@@ -204,7 +197,7 @@ func (f *AsciiFormatter) processArray(array []interface{}, deltas []diff.Delta) 
 	return nil
 }
 
-func (f *AsciiFormatter) processObject(object map[string]interface{}, deltas []diff.Delta) error {
+func (f *JSONFormatter) processObject(object map[string]interface{}, deltas []diff.Delta) error {
 	names := sortKeys(object)
 	for _, name := range names {
 		value := object[name]
@@ -223,7 +216,7 @@ func (f *AsciiFormatter) processObject(object map[string]interface{}, deltas []d
 	return nil
 }
 
-func (f *AsciiFormatter) processItem(value interface{}, deltas []diff.Delta, position diff.Position) error {
+func (f *JSONFormatter) processItem(value interface{}, deltas []diff.Delta, position diff.Position) error {
 	matchedDeltas := f.searchDeltas(deltas, position)
 	positionStr := position.String()
 	if len(matchedDeltas) > 0 {
@@ -242,26 +235,13 @@ func (f *AsciiFormatter) processItem(value interface{}, deltas []diff.Delta, pos
 
 				f.newLine(ChangeNil)
 				f.printKey(positionStr)
-
-				f.walkFn(positionStr, &DeltaInfo{
-					encodingState: ChangeNil,
-					lineState:     f.lineState,
-					isKey:         true,
-					ident:         f.line.indent,
-					line:          f.lineCount,
-					leftLines:     f.leftLine,
-					rightLines:    f.rightLine,
-				}, nil)
-
 				f.print("{")
-				f.lineState = ObjectOpen
 				f.closeLine()
 				f.push(positionStr, len(o), false)
 				f.processObject(o, d.Deltas)
 				f.pop()
 				f.newLine(ChangeNil)
 				f.print("}")
-				f.lineState = ObjectClose
 				f.printComma()
 				f.closeLine()
 
@@ -277,26 +257,13 @@ func (f *AsciiFormatter) processItem(value interface{}, deltas []diff.Delta, pos
 
 				f.newLine(ChangeNil)
 				f.printKey(positionStr)
-
-				f.walkFn(positionStr, &DeltaInfo{
-					encodingState: ChangeNil,
-					lineState:     f.lineState,
-					isKey:         true,
-					ident:         f.line.indent,
-					line:          f.lineCount,
-					leftLines:     f.leftLine,
-					rightLines:    f.rightLine,
-				}, nil)
-
 				f.print("[")
-				f.lineState = ArrayOpen
 				f.closeLine()
 				f.push(positionStr, len(a), true)
 				f.processArray(a, d.Deltas)
 				f.pop()
 				f.newLine(ChangeNil)
 				f.print("]")
-				f.lineState = ArrayClose
 				f.printComma()
 				f.closeLine()
 
@@ -335,7 +302,7 @@ func (f *AsciiFormatter) processItem(value interface{}, deltas []diff.Delta, pos
 	return nil
 }
 
-func (f *AsciiFormatter) searchDeltas(deltas []diff.Delta, postion diff.Position) (results []diff.Delta) {
+func (f *JSONFormatter) searchDeltas(deltas []diff.Delta, postion diff.Position) (results []diff.Delta) {
 	results = make([]diff.Delta, 0)
 	for _, delta := range deltas {
 		switch delta.(type) {
@@ -354,19 +321,19 @@ func (f *AsciiFormatter) searchDeltas(deltas []diff.Delta, postion diff.Position
 	return
 }
 
-func (f *AsciiFormatter) push(name string, size int, array bool) {
+func (f *JSONFormatter) push(name string, size int, array bool) {
 	f.path = append(f.path, name)
 	f.size = append(f.size, size)
 	f.inArray = append(f.inArray, array)
 }
 
-func (f *AsciiFormatter) pop() {
+func (f *JSONFormatter) pop() {
 	f.path = f.path[0 : len(f.path)-1]
 	f.size = f.size[0 : len(f.size)-1]
 	f.inArray = f.inArray[0 : len(f.inArray)-1]
 }
 
-func (f *AsciiFormatter) addLineWith(change ChangeType, value string) {
+func (f *JSONFormatter) addLineWith(change ChangeType, value string) {
 	f.line = &AsciiLine{
 		change: change,
 		indent: len(f.path),
@@ -375,7 +342,7 @@ func (f *AsciiFormatter) addLineWith(change ChangeType, value string) {
 	f.closeLine()
 }
 
-func (f *AsciiFormatter) newLine(change ChangeType) {
+func (f *JSONFormatter) newLine(change ChangeType) {
 	f.line = &AsciiLine{
 		change: change,
 		indent: len(f.path),
@@ -383,7 +350,7 @@ func (f *AsciiFormatter) newLine(change ChangeType) {
 	}
 }
 
-func (f *AsciiFormatter) closeLine() {
+func (f *JSONFormatter) closeLine() {
 	leftLine := 0
 	rightLine := 0
 	f.lineCount++
@@ -417,24 +384,21 @@ func (f *AsciiFormatter) closeLine() {
 	})
 }
 
-func (f *AsciiFormatter) printKey(name string) {
+func (f *JSONFormatter) printKey(name string) {
 	if !f.inArray[len(f.inArray)-1] {
 		f.line.key = name
 		fmt.Fprintf(f.line.buffer, `"%s": `, name)
 	}
-	// else if f.config.ShowArrayIndex {
-	// 	fmt.Fprintf(f.line.buffer, `%s: `, name)
-	// }
 }
 
-func (f *AsciiFormatter) printComma() {
+func (f *JSONFormatter) printComma() {
 	f.size[len(f.size)-1]--
 	if f.size[len(f.size)-1] > 0 {
 		f.line.buffer.WriteRune(',')
 	}
 }
 
-func (f *AsciiFormatter) printValue(value interface{}) {
+func (f *JSONFormatter) printValue(value interface{}) {
 	switch value.(type) {
 	case string:
 		f.line.val = value
@@ -448,29 +412,16 @@ func (f *AsciiFormatter) printValue(value interface{}) {
 	}
 }
 
-func (f *AsciiFormatter) print(a string) {
+func (f *JSONFormatter) print(a string) {
 	f.line.buffer.WriteString(a)
 }
 
-func (f *AsciiFormatter) printRecursive(name string, value interface{}, change ChangeType) {
+func (f *JSONFormatter) printRecursive(name string, value interface{}, change ChangeType) {
 	switch value.(type) {
 	case map[string]interface{}:
 		f.newLine(change)
 		f.printKey(name)
-
-		f.walkFn(name, &DeltaInfo{
-			encodingState: change,
-			lineState:     f.lineState,
-			isKey:         true,
-			ident:         f.line.indent,
-			line:          f.lineCount,
-			leftLines:     f.leftLine,
-			rightLines:    f.rightLine,
-		}, nil)
-
 		f.print("{")
-		f.lineState = ObjectOpen
-
 		f.closeLine()
 
 		m := value.(map[string]interface{})
@@ -485,25 +436,13 @@ func (f *AsciiFormatter) printRecursive(name string, value interface{}, change C
 
 		f.newLine(change)
 		f.print("}")
-		f.lineState = ObjectClose
-
 		f.printComma()
 		f.closeLine()
 
 	case []interface{}:
 		f.newLine(change)
 		f.printKey(name)
-		f.walkFn(name, &DeltaInfo{
-			encodingState: change,
-			lineState:     f.lineState,
-			isKey:         true,
-			ident:         f.line.indent,
-			line:          f.lineCount,
-			leftLines:     f.leftLine,
-			rightLines:    f.rightLine,
-		}, nil)
 		f.print("[")
-		f.lineState = ArrayOpen
 		f.closeLine()
 
 		s := value.([]interface{})
@@ -516,37 +455,13 @@ func (f *AsciiFormatter) printRecursive(name string, value interface{}, change C
 
 		f.newLine(change)
 		f.print("]")
-		f.lineState = ArrayClose
 		f.printComma()
 		f.closeLine()
 
 	default:
 		f.newLine(change)
 		f.printKey(name)
-
-		f.walkFn(name, &DeltaInfo{
-			encodingState: change,
-			lineState:     f.lineState,
-			isKey:         true,
-			ident:         f.line.indent,
-			line:          f.lineCount,
-			leftLines:     f.leftLine,
-			rightLines:    f.rightLine,
-		}, nil)
-
 		f.printValue(value)
-
-		// nice
-		f.walkFn(value, &DeltaInfo{
-			encodingState: change,
-			lineState:     f.lineState,
-			isKey:         false,
-			ident:         f.line.indent,
-			line:          f.lineCount,
-			leftLines:     f.leftLine,
-			rightLines:    f.rightLine,
-		}, nil)
-
 		f.printComma()
 		f.closeLine()
 	}
