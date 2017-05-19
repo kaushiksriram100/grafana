@@ -224,11 +224,16 @@ type version struct {
 }
 
 // getMaxVersion returns the highest version number in the `dashboard_version`
-// table
+// table.
+//
+// This is necessary because sqlite3 doesn't support autoincrement in the same
+// way that Postgres or MySQL do, so we use this to get around that. Since it's
+// impossible to delete a version in Grafana, this is believed to be a
+// same-enough alternative.
 func getMaxVersion(sess *xorm.Session, dashboardId int64) (int, error) {
 	v := version{}
 	has, err := sess.Table("dashboard_version").
-		Select("MAX(version) AS max"). // thank you sqlite3 :()
+		Select("MAX(version) AS max").
 		Where("dashboard_id = ?", dashboardId).
 		Get(&v)
 	if !has {

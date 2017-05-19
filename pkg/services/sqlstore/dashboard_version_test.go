@@ -141,7 +141,6 @@ func TestCompareDashboardVersions(t *testing.T) {
 		// 		Original:    savedDash.Version,
 		// 		New:         savedDash.Version,
 		// 	}
-		// 	fmt.Printf("%s\n", savedDash)
 
 		// 	err := CompareDashboardVersionsCommand(&cmd)
 		// 	So(err, ShouldBeNil)

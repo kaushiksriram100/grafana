@@ -207,16 +207,11 @@ func (b *BasicDiff) Basic(lines []*JSONLine) []*BasicBlock {
 					}
 				}
 			}
-			// end else
 		}
 	}
 
 	return blocks
 }
-
-// ---
-// Template Hell
-// ---
 
 // encStateMap is used in the template helper
 var (

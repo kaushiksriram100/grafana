@@ -414,5 +414,3 @@ describe('AuditLogCtrl', function() {
     });
   });
 });
-
-

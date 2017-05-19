@@ -27,4 +27,5 @@ func TestDashboardModel(t *testing.T) {
 			So(len(dash.GetTags()), ShouldEqual, 0)
 		})
 	})
+
 }
