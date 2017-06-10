@@ -61,15 +61,14 @@ func (b *InProcBus) DispatchCtx(ctx context.Context, msg Msg) error {
 
 func (b *InProcBus) Dispatch(msg Msg) error {
 	var msgName = reflect.TypeOf(msg).Elem().Name()
-
 	var handler = b.handlers[msgName]
+
 	if handler == nil {
 		return fmt.Errorf("handler not found for %s", msgName)
 	}
 
 	var params = make([]reflect.Value, 1)
 	params[0] = reflect.ValueOf(msg)
-
 	ret := reflect.ValueOf(handler).Call(params)
 	err := ret[0].Interface()
 	if err == nil {

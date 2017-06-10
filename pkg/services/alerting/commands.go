@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/grafana/grafana/pkg/bus"
+	"github.com/grafana/grafana/pkg/metrics"
 	m "github.com/grafana/grafana/pkg/models"
 )
 
@@ -95,6 +96,9 @@ func scheduleAlertsForPartition(cmd *ScheduleAlertsForPartitionCommand) error {
 		return errors.New(fmt.Sprintf("Invalid partition id %v (node count = %v)", cmd.PartId, cmd.NodeCount))
 	}
 	rules := engine.ruleReader.Fetch()
+	//push normal alerts rules metrics to API
+	metrics.M_Clustering_Alert_Rules_Scheduled_Per_Node.Update(int64(len(rules)))
+	fmt.Println("RULES:", rules)
 	filterCount := 0
 	intervalEnd := time.Unix(cmd.Interval, 0).Add(time.Minute)
 	for _, rule := range rules {
@@ -121,6 +125,9 @@ func scheduleMissingAlerts(cmd *ScheduleMissingAlertsCommand) error {
 	//transform each alert to rule
 	res := make([]*Rule, 0)
 	missingAlerts := cmd.MissingAlerts
+	fmt.Println("RULES-missing alerts:", missingAlerts)
+	//Push to missing alert rule metrics API
+	metrics.M_Clustering_Missing_Alert_Rules_Scheduled_Per_Node.Update(int64(len(missingAlerts)))
 	for _, ruleDef := range missingAlerts {
 		if model, err := NewRuleFromDBAlert(ruleDef); err != nil {
 			engine.log.Error("Could not build alert model for rule", "ruleId", ruleDef.Id, "error", err)

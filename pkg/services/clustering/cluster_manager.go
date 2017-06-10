@@ -183,6 +183,7 @@ func (cm *ClusterManager) scheduleMissingAlerts(alerts []*m.Alert) {
 	cm.dispatcherTaskQ <- alertDispatchTask1
 	cm.alertingState.lastProcessedInterval = lastHeartbeat
 
+	//Push metrics to api
 	metrics.M_Clustering_Missing_Alerts_Count.Update(int64(len(alerts)))
 	cm.log.Debug(fmt.Sprintf("Count of missing alerts %v", len(alerts)))
 }
@@ -242,6 +243,7 @@ func (cm *ClusterManager) scheduleNormalAlerts() {
 	}
 	cm.dispatcherTaskQ <- alertDispatchTask
 	cm.alertingState.lastProcessedInterval = lastHeartbeat
+
 }
 
 func (cm *ClusterManager) alertRulesDispatcher(ctx context.Context) error {
@@ -273,6 +275,7 @@ func (cm *ClusterManager) handleAlertRulesDispatcherTask(task *DispatcherTask) {
 			PartId:    taskInfo.partId,
 		}
 		err = bus.Dispatch(scheduleCmd)
+
 		cm.log.Info("Alert rules dispatcher - submitted normal alerts batch")
 	case DISPATCHER_TASK_TYPE_ALERTS_MISSING:
 		taskInfo := task.taskInfo.(*DispatcherTaskAlertsMissing)
@@ -280,6 +283,7 @@ func (cm *ClusterManager) handleAlertRulesDispatcherTask(task *DispatcherTask) {
 			MissingAlerts: taskInfo.missingAlerts,
 		}
 		err = bus.Dispatch(scheduleCmd)
+
 		cm.log.Info("Alert rules dispatcher - submitted missing alerts batch")
 	default:
 		err = errors.New("Invalid task type " + string(task.taskType))

@@ -67,9 +67,12 @@ var (
 	M_StatTotal_Playlists    Gauge
 
 	//Clustering
-	M_Clustering_Active_Nodes         Gauge
-	M_Clustering_Pending_Alert_Jobs   Gauge
-	M_Clustering_Missing_Alerts_Count Gauge
+	M_Clustering_Active_Nodes                           Gauge
+	M_Clustering_Pending_Alert_Jobs                     Gauge
+	M_Clustering_Missing_Alerts_Count                   Gauge
+	M_Clustering_Alerts_Processed_Per_Node              Counter
+	M_Clustering_Alert_Rules_Scheduled_Per_Node         Gauge
+	M_Clustering_Missing_Alert_Rules_Scheduled_Per_Node Gauge
 )
 
 func initMetricVars(settings *MetricSettings) {
@@ -148,4 +151,6 @@ func initMetricVars(settings *MetricSettings) {
 	M_Clustering_Active_Nodes = RegGauge("clustering.active_nodes")
 	M_Clustering_Pending_Alert_Jobs = RegGauge("clustering.pending_alert_jobs")
 	M_Clustering_Missing_Alerts_Count = RegGauge("clustering.missing_alerts_count")
+	M_Clustering_Alert_Rules_Scheduled_Per_Node = RegGauge("clustering.alerts.normal_alert_rules_scheduled_per_node")
+	M_Clustering_Missing_Alert_Rules_Scheduled_Per_Node = RegGauge("clustering.alerts.missing_alert_rules_scheduled_per_node")
 }
